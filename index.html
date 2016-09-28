@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<meta name="author" content="Antonino Perricone">
+	<title>Steroid test</title>
+	<meta property="og:title" content="Spherical light + Ammo test" />
+	<meta property="og:image" content="thumb.png" />
+	<meta property="og:description" content="Spherical light By Antonino Perricone" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+	<style>
+		canvas { border: 1px solid black; }
+		body { overflow:hidden; }
+		input { position:absolute; }
+		span#me
+		{
+			position:absolute;
+			bottom: 8px;
+			right: 8px;
+			/*background-color: rgba(192,192,64,0.5);*/
+		}
+	</style>
+	<script type="text/javascript" src="engine.js"></script>
+	<script type="text/javascript" src="program.js"></script>
+	<script type="text/javascript" src="camera.js"></script>
+	<script type="text/javascript" src="mesh.js"></script>
+	<script type="text/javascript" src="rotatingCamera.js"></script>
+	<script type="text/javascript" src="light.js"></script>
+	<script type="text/javascript" src="audio.js"></script>
+	<script type="text/javascript" src="particles.js"></script>
+<script type="text/javascript">
+	// semi equivalent of $(document).ready()
+	document.addEventListener("DOMContentLoaded", function(event) { 
+		var e = new Engine();
+		var gl = e.gl;
+
+		var a = new Audio();
+		Mesh.LoadProgram(e);
+		var mc;
+		var cubes = [];
+		var colors = [
+			[0.8,0.3,0.8,1],
+			[0.3,0.8,0.3,1],
+			[0.3,0.3,0.8,1],
+			[0.8,0.8,0.3,1],
+			[0.8,0.3,0.8,1],
+			[0.3,0.8,0.8,1],
+			[0.8,0.4,0.1,1],
+			[0.8,0.1,0.4,1],
+			[0.4,0.8,0.1,1],
+			[0.1,0.4,0.8,1],
+		];
+		for(var i=0;i<10;i++)
+		{
+			mc = new MeshCreator();
+			mc.Begin(true);
+			mc.AddBox();
+			var cube = mc.End(gl);
+			cube.materialColor = colors[i];
+			e.meshes.push(cube);
+			cubes.push(cube);
+		}
+		mc = new MeshCreator();
+		mc.Begin(true);
+		mc.AddBox([-10,-1,-10],[10,10,10],true);
+		var room = mc.End(gl);
+		room.materialColor = [0.65,0.65,0.65,1];
+		e.meshes.push(room);
+		var sphere = new Light(gl,[3,4,5])
+		e.meshes.push(sphere);
+		e.light = sphere;
+
+		function message(v) 
+		{ 
+			if(v.data[0] == "phyUpdate")
+			{
+				sphere.pos = v.data[1]; 
+				e.particles.selected = (v.data[1][6]);
+				a.setFirePos(v.data[1]);
+				for(var i=0;i<10;i++)
+				{
+					cubes[i].pos = v.data[2+i+i];
+					cubes[i].quat = v.data[3+i+i];
+					if(v.data[2+i+i][3])
+					{
+						cubes[i].materialColor = [1,1,1,1];
+					} else
+					{
+						cubes[i].materialColor = colors[i];
+					}
+				}
+				a.setCamera(e.camera.pos(),e.camera._at,e.camera._up);
+				for(var i = 0; i<v.data[22].length; i++ )
+				{
+					var coll = v.data[22][i];
+					a.hit(coll[3]/5.0,coll);
+				}
+				e.particles.center_posvel = v.data[1];
+				e.particles.update();
+				sphere.radius = 0.5+e.particles.radius/4;
+				if( e.particles.selected )
+					sphere.seeColor = [0.4,0.9,0.9]; //yellow-red
+				else
+					sphere.seeColor = [0.9,0.9,0.4]; //yellow-red
+				//console.log(l);
+				e.paint(); 
+			} else
+			if(v.data[0] == "camUpdate")
+			{
+				cam.ApplyDeltas(v.data[1],v.data[2],v.data[3]);
+			}
+		}
+		var w;
+		function PhyStart()
+		{
+			w = new Worker("phyPart.js");
+			w.onmessage = message;
+		}
+		document.getElementById('restart').onclick = function()
+		{
+			w.terminate();
+			e.particles.particles = [];
+			PhyStart();
+		}
+		PhyStart();
+		var cam = new RotatingCamera();
+		//cam.persp(false); cam.height(20);
+		cam.persp(true); cam.fovDeg(35); 
+		cam.look(0,4,0);
+		cam.alpha(0.37);
+		cam.beta(-0.3);
+		cam.dist(57);
+		e.camera = cam;
+		e.paint();
+		//cam.AddListeners(undefined); //,function(){e.paint();});
+		function getNormalized(evt)
+		{
+			var rect =  e.c.getBoundingClientRect();
+			var pX = evt.clientX - rect.left;
+			var pY = evt.clientY - rect.top;
+			return [(pX / e.c.width) * 2 - 1,
+					1 - (pY / e.c.height) * 2];
+		}
+		function mouseEvt(evt)
+		{
+			var viewCoord = getNormalized(evt);
+			var camPos = cam.pos();
+			var p3d = cam.get3D(viewCoord[0],viewCoord[1],1);
+			var d=[
+				evt.type,
+				evt.screenX,
+				evt.screenY,
+				evt.deltaY ? evt.deltaY : -evt.wheelDelta,
+				camPos,
+				p3d];
+			w.postMessage(d);
+			//console.log(sX+";"+sY)
+		}
+		var oldDist = 0;
+		function touchEvt(evt)
+		{
+			//console.log(evt.type+":"+evt);
+			if(evt.touches.length==0 && evt.type=="touchend")
+			{
+				mouseEvt({	'type': 'mouseup',
+							'clientX': 0, 'clientY': 0, 
+							'screenX': 0, 'screenY': 0,
+							'deltaY' : 0});
+			}
+			if(evt.touches.length==1)
+			{
+				var t = evt.touches[0];
+				var fakeEvt = {	'clientX': t.clientX, 'clientY': t.clientY, 
+								'screenX': t.screenX, 'screenY': t.screenY,
+								'deltaY':0 };
+				switch(evt.type)
+				{
+				case "touchstart": fakeEvt.type='mousedown'; break;
+				case "touchend": fakeEvt.type='mouseup'; break;
+				case "touchcancel": fakeEvt.type='mouseup'; break;
+				case "touchmove": fakeEvt.type='mousemove'; break;
+				}
+				mouseEvt(fakeEvt);
+			}
+			if(evt.touches.length==2)
+			{
+				var p1 = getNormalized(evt.touches[0]);
+				var p2 = getNormalized(evt.touches[1]);
+				var d = [p2[0]-p1[0],p2[1]-p1[1]];
+				if(evt.type=="touchmove")
+				{
+					var t = evt.touches[0];
+					mouseEvt({	'type': 'wheel',
+								'clientX': t.clientX, 'clientY': t.clientY, 
+								'screenX': t.screenX, 'screenY': t.screenY,
+								'deltaY': oldD-d});
+				}
+				oldDist=d;
+			}
+			evt.preventDefault();
+		}
+		document.body.addEventListener("mousedown",mouseEvt);
+		document.body.addEventListener("mouseup",mouseEvt);
+		document.body.addEventListener("mousemove",mouseEvt);
+		document.body.addEventListener("touchstart",touchEvt);
+		document.body.addEventListener("touchend",touchEvt);
+		document.body.addEventListener("touchcancel",touchEvt);
+		document.body.addEventListener("touchmove",touchEvt);
+		document.body.addEventListener("wheel",mouseEvt);
+	});
+</script>
+</head>
+<body>
+	<input type="button" value="restart" id="restart">
+	<span id="me">By <a href="http://aperricone.altervista.org">Antonino Perricone</a> &copy; 2016</span>
+</body>
+</html>
