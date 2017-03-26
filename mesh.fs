@@ -174,7 +174,7 @@ float ssao(vec2 texCoord)
 {
 	float rnd = (rand2(gl_FragCoord.xy)*2.)-1.;
 	float thisZ = linScr(texture2D(depthBuffer, texCoord).x);
-	float occ = 1.0;
+	float occ = 0.0;
 	for(int j=0;j<N_CIRCLE_SSAO;j++)
 	{
 		float alpha = (float(j)+rnd) * M_PI * (2. / float(N_CIRCLE_SSAO));
@@ -182,40 +182,16 @@ float ssao(vec2 texCoord)
 		for(int i=N_RADIUS_SSAO;i>0;i--)
 		{
 			float r = OCCL_RADIUS * float(i) / float(N_RADIUS_SSAO); 
-			vec2 thispos = texCoord + vec2(direx[0],direx[1])*r; 
+			vec2 thispos = texCoord + direx*r; 
 			float cmpZ = linScr(texture2D(depthBuffer, thispos).x);
 			float zDiff = thisZ - cmpZ;
-			if( (zDiff>0.0) && (zDiff<OCCL_RADIUS) )
+			if( (zDiff>0.0) && (zDiff<r) )
 			{
-				occ -= min(zDiff,OCCL_RADIUS)/(OCCL_RADIUS*float(N_CIRCLE_SSAO)*float(N_RADIUS_SSAO));
+				occ += zDiff/r;
 			}
       }
 	}
-   return occ;
-}
-
-float ssao_no(vec2 texCoord)
-{
-	float rnd = (rand2(gl_FragCoord.xy)*2.)-1.;
-	float thisZ = realScr(texture2D(depthBuffer, texCoord).x);
-	float occ = 1.0;
-	for(int j=0;j<N_CIRCLE_SSAO;j++)
-	{
-		float alpha = (float(j)+rnd) * M_PI * (2. / float(N_CIRCLE_SSAO));
-		vec2 direx = vec2(sin(alpha),cos(alpha));
-		for(int i=N_RADIUS_SSAO;i>0;i--)
-		{
-			float r = OCCL_RADIUS * float(i) / float(N_RADIUS_SSAO); 
-         vec3 thispos = (uPVMatrix * vec4(pos + rg * (direx[0]*r) + up*(direx[1]*r),1)).xyz; 
-			float cmpZ = linScr(texture2D(depthBuffer, (thispos.xy+1.0)/2.0).x);
-			float zDiff = thispos.z - cmpZ;
-			if( (zDiff>0.0) && (zDiff<OCCL_RADIUS) )
-			{
-				occ -= min(zDiff,OCCL_RADIUS)/(OCCL_RADIUS*float(N_CIRCLE_SSAO)*float(N_RADIUS_SSAO));
-			}
-      }
-	}
-   return occ;
+   return 1.0-occ/(float(N_CIRCLE_SSAO*N_RADIUS_SSAO));
 }
 
 
@@ -229,7 +205,6 @@ void main()
 	vec2 texCoord = gl_FragCoord.xy / uScreenSizeNearFar.xy;
 	vec3 ambientPart = vec3(0.5) * ssao(texCoord); // 0.1^(1/2.2) = 0.351 
 	gl_FragColor.xyz = uMaterialColor.xyz * (diffusePart +ambientPart); 
-	//gl_FragColor.xyz = uMaterialColor.xyz * diffusePart + ambientPart; 
-	//gl_FragColor.xyz = vec3( ssao(texCoord) );
+	//gl_FragColor.xyz =  ambientPart; 
 	gl_FragColor.w = uMaterialColor.w;
 } 
